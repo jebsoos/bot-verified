@@ -98,17 +98,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_admin(update, context):
-        return
-
     today = str(date.today())
-    violations_today = len(bot_data.daily_stats['violations'].get(today, []))
-    verified_count = len(bot_data.verified_users)
+    pelanggaran = bot_data.daily_stats['violations'].get(today, [])
+    kata = sum(1 for v in pelanggaran if v['type'] == 'blocked_word')
+    link = sum(1 for v in pelanggaran if v['type'] == 'link_sharing')
+    verified_today = sum(1 for v in pelanggaran if v['type'] == 'verified')
+    aktif_hari_ini = len(set(bot_data.daily_stats.get("active_today", [])))
 
-    stats_message = (f"📊 Statistik Hari Ini ({today})\n"
-                     f"👥 Total Member Terverifikasi: {verified_count}\n"
-                     f"⚠️ Pelanggaran Hari Ini: {violations_today}\n")
-    await update.message.reply_text(stats_message)
+    aktivitas = bot_data.daily_stats.get('activity', {})
+    top_3_jam = sorted(aktivitas.items(), key=lambda x: x[1], reverse=True)[:3]
+    jam_list = "\\n".join([f"• {jam.zfill(2)}.00 WIB" for jam, _ in top_3_jam]) or "• Tidak ada data"
+
+    msg = f"""📊 Statistik Hari Ini ({today})
+
+👥 Total Member Terverifikasi: {len(bot_data.verified_users)}
+🔐 Terverifikasi Hari Ini: {verified_today}
+🟢 Member Aktif Hari Ini: {aktif_hari_ini}
+
+⚠️ Pelanggaran Hari Ini: {len(pelanggaran)}
+• Kata Terlarang: {kata}
+• Share Link: {link}
+
+🕒 Aktivitas Tertinggi Hari Ini:
+{jam_list}"""
+
+    await update.message.reply_text(msg)
+
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
