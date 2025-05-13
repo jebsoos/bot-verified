@@ -3,18 +3,18 @@ from telegram.constants import ChatMemberStatus, ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 import json
 from datetime import datetime, date
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from pytz import timezone
 import re
 
-import os
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-GROUP_LOBBY_ID = int(os.getenv("GROUP_LOBBY_ID"))
+BOT_TOKEN = '8025954540:AAEvhFpIeRR0eoGmNV_rqaG0ZVLWL1q6lSU'
+ADMIN_CHAT_ID = '7629527598'
+GROUP_LOBBY_ID = -1002556752525
 
 ROOM_LINKS = {
-    "kolpri": os.getenv("ROOM_KOLPRI"),
-    "trakteer": os.getenv("ROOM_TRAKTEER"),
-    "global": os.getenv("ROOM_GLOBAL")
+    "kolpri": "https://t.me/+rkHKJheanU9iZDQy",
+    "trakteer": "https://t.me/+3rN7KnkeGPY3ODli",
+    "global": "https://t.me/+IKQNWyU2_HRhM2Qy"
 }
 
 
@@ -98,32 +98,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        return
+
     today = str(date.today())
-    pelanggaran = bot_data.daily_stats['violations'].get(today, [])
-    kata = sum(1 for v in pelanggaran if v['type'] == 'blocked_word')
-    link = sum(1 for v in pelanggaran if v['type'] == 'link_sharing')
-    verified_today = sum(1 for v in pelanggaran if v['type'] == 'verified')
-    aktif_hari_ini = len(set(bot_data.daily_stats.get("active_today", [])))
+    violations_today = len(bot_data.daily_stats['violations'].get(today, []))
+    verified_count = len(bot_data.verified_users)
 
-    aktivitas = bot_data.daily_stats.get('activity', {})
-    top_3_jam = sorted(aktivitas.items(), key=lambda x: x[1], reverse=True)[:3]
-    jam_list = "\\n".join([f"• {jam.zfill(2)}.00 WIB" for jam, _ in top_3_jam]) or "• Tidak ada data"
-
-    msg = f"""📊 Statistik Hari Ini ({today})
-
-👥 Total Member Terverifikasi: {len(bot_data.verified_users)}
-🔐 Terverifikasi Hari Ini: {verified_today}
-🟢 Member Aktif Hari Ini: {aktif_hari_ini}
-
-⚠️ Pelanggaran Hari Ini: {len(pelanggaran)}
-• Kata Terlarang: {kata}
-• Share Link: {link}
-
-🕒 Aktivitas Tertinggi Hari Ini:
-{jam_list}"""
-
-    await update.message.reply_text(msg)
-
+    stats_message = (f"📊 Statistik Hari Ini ({today})\n"
+                     f"👥 Total Member Terverifikasi: {verified_count}\n"
+                     f"⚠️ Pelanggaran Hari Ini: {violations_today}\n")
+    await update.message.reply_text(stats_message)
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -228,29 +213,43 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.ALL, message_handler))
 
-    app.run_polling()
+    
+# Fungsi kirim statistik
+async def send_daily_stats():
+    today = str(date.today())
+    pelanggaran = bot_data.daily_stats['violations'].get(today, [])
+    kata = sum(1 for v in pelanggaran if v['type'] == 'blocked_word')
+    link = sum(1 for v in pelanggaran if v['type'] == 'link_sharing')
+    verified_today = sum(1 for v in pelanggaran if v['type'] == 'verified')
+    aktif_hari_ini = len(set(bot_data.daily_stats.get("active_today", [])))
 
-# --- Anti-Link Filter ---
-LINK_PATTERN = re.compile(
-    r"(http[s]?://|www\.|t\.me/|@|bit\.ly|tinyurl|discord\.gg|telegram\.me)"
-)
+    aktivitas = bot_data.daily_stats.get('activity', {})
+    top_3_jam = sorted(aktivitas.items(), key=lambda x: x[1], reverse=True)[:3]
+    jam_list = "\\n".join([f"• {jam.zfill(2)}.00 WIB" for jam, _ in top_3_jam]) or "• Tidak ada data"
 
-async def handle_anti_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message is None or update.message.text is None:
-        return
-    user = update.effective_user
-    chat_member = await context.bot.get_chat_member(update.effective_chat.id, user.id)
+    msg = f"""📊 Statistik Hari Ini ({today})
 
-    # Abaikan admin dan owner
-    if chat_member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-        return
+👥 Total Member Terverifikasi: {len(bot_data.verified_users)}
+🔐 Terverifikasi Hari Ini: {verified_today}
+🟢 Member Aktif Hari Ini: {aktif_hari_ini}
 
-    message_text = update.message.text.lower()
-    if LINK_PATTERN.search(message_text):
-        try:
-            await update.message.delete()
-        except Exception as e:
-            print(f"[Anti-Link] Gagal hapus pesan: {e}")
+⚠️ Pelanggaran Hari Ini: {len(pelanggaran)}
+• Kata Terlarang: {kata}
+• Share Link: {link}
 
+🕒 Aktivitas Tertinggi Hari Ini:
+{jam_list}"""
 
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_anti_link))
+    await app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg)
+
+    bot_data.daily_stats['violations'][today] = []
+    bot_data.daily_stats['activity'] = {}
+    bot_data.daily_stats['active_today'] = set()
+    bot_data.save_data()
+
+# ✅ Scheduler hanya sekali
+scheduler = AsyncIOScheduler(timezone=timezone("Asia/Jakarta"))
+scheduler.add_job(send_daily_stats, "cron", hour=0, minute=0)
+scheduler.start()
+
+app.run_polling()
