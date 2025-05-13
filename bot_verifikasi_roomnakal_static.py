@@ -214,3 +214,28 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.ALL, message_handler))
 
     app.run_polling()
+
+# --- Anti-Link Filter ---
+LINK_PATTERN = re.compile(
+    r"(http[s]?://|www\.|t\.me/|@|bit\.ly|tinyurl|discord\.gg|telegram\.me)"
+)
+
+async def handle_anti_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None or update.message.text is None:
+        return
+    user = update.effective_user
+    chat_member = await context.bot.get_chat_member(update.effective_chat.id, user.id)
+
+    # Abaikan admin dan owner
+    if chat_member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+        return
+
+    message_text = update.message.text.lower()
+    if LINK_PATTERN.search(message_text):
+        try:
+            await update.message.delete()
+        except Exception as e:
+            print(f"[Anti-Link] Gagal hapus pesan: {e}")
+
+
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_anti_link))
